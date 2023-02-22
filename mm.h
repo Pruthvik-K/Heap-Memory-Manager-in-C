@@ -2,11 +2,12 @@
 #define MM_MAX_STRUCT_NAME 32
 
 struct vm_page_;
-typedef struct vm_page_family{
+typedef struct vm_page_family_{
 	
 	char struct_name[MM_MAX_STRUCT_NAME];
 	uint32_t struct_size;
 	struct vm_page_ *first_page;
+	glthread_t free_block_priority_list_head;
 } vm_page_family_t;
 
 typedef struct vm_page_for_families_{
@@ -34,10 +35,13 @@ typedef enum{
 typedef struct block_meta_data_{
 	vm_bool_t is_free;
 	uint32_t block_size;
-	uint32_t offset;
+	uint32_t offset;	/*offset from thy start of the page*/
+	glthread_t priority_thread_glue;
 	struct block_meta_data_ *prev_block;
 	struct block_meta_data_ *next_block;
 } block_meta_data_t;
+GLTHREAD_TO_STRUCT(glthread_to_block_meta_data,
+	block_meta_data_t, priority_thread_glue, glthread_ptr);
 
 
 typedef struct vm_page_{
@@ -123,19 +127,4 @@ vm_bool_t mm_is_vm_page_empty(vm_page_t *vm_page);
 	vm_page_t_ptr->block_meta_data.prev_block = NULL;	\
 	vm_page_t_ptr->block_meta_data.is_free = MM_TRUE;
 	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
+
