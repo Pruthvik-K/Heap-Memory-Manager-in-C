@@ -66,13 +66,13 @@ glthread_add_last(glthread_t *base_glthread, glthread_t *new_glthread){
 				   *prevglthreadptr = NULL;
 				  
 		ITERATE_GLTHREAD_BEGIN(base_glthread, glthreadptr){
-			prevthreadptr = glthreadptr;
+			prevglthreadptr = glthreadptr;
 		} ITERATE_GLTHREAD_END(base_glthread, glthreadptr);
 		
 		if(prevglthreadptr)
-			glthread_add_next(prevgtlhreadptr, new_glthread);
+			glthread_add_next(prevglthreadptr, new_glthread);
 		else
-			glthread_add_next(base_gltheread, new_glthread);
+			glthread_add_next(base_glthread, new_glthread);
 				
 }
 			
@@ -148,7 +148,7 @@ glthread_priority_insert(glthread_t *base_glthread,
 		glthread_add_next(curr, glthread);
 		return;
 		
-	} ITEATE_GLTHREAD_END(base_glthread, curr);
+	} ITERATE_GLTHREAD_END(base_glthread, curr);
 	
 	/*Add in the end*/
 	glthread_add_next(prev, glthread);

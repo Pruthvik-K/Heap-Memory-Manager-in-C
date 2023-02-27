@@ -1,8 +1,7 @@
-#include "glthread.h"
-#include <memory.h>
-#include <stdlib.h>
-#include <stdio.h>
 
+#include <stdio.h>
+#include "uapi_mm.h"
+#include <assert.h>
 typedef struct _person{
 
     int age;

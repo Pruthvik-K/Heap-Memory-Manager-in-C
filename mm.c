@@ -5,6 +5,11 @@
 #include <assert.h>
 #include "mm.h"
 
+
+#define ANSI_COLOR_MAGENTA "\x1b[35m"
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
+
 static vm_page_for_families_t *first_vm_page_for_families = NULL;
 static size_t SYSTEM_PAGE_SIZE = 0;
 
@@ -155,8 +160,10 @@ static inline uint32_t mm_max_page_allocatable_memory(int units){
 }
 
 
+
+/*Return a fresh new virtual page*/
 vm_page_t *
-allocate_vm_page(vm_page_family_t *vm_page_family){
+allocate_vm_page(vm_page_family_t *vm_page_family, int units){
 	
 	vm_page_t *vm_page = mm_get_new_vm_page_from_kernel(1);
 	
@@ -218,7 +225,7 @@ free_blocks_comparision_function(
 	
 	if(block_meta_data1->block_size > block_meta_data2->block_size) 
 		return -1;
-	else if((block_meta_data1->block_size < block_meta_data2->block_size)
+	else if(block_meta_data1->block_size < block_meta_data2->block_size)
 		return 1;
 	return 0;
 }									
@@ -238,52 +245,23 @@ mm_add_free_block_meta_data_to_free_block_list(
 }
 
 
-/*The public function to be invoked by the application for Dynamic Memory Allocation*/
-void * 
-xcalloc(char *srtuct_name, int units){
-
-	/*Step 1*/
-	vm_page_family_t *pg_family = 
-			lookup_page_family_by_name(struct_name);
+static vm_page_t * 
+mm_family_new_page_add(vm_page_family_t *vm_page_family, int units){
 	
-	if(!pg_family){
-		printf("Error : Structure %s is not registered with Memory Manager\n"
-				struct_name);
+	vm_page_t *vm_page = allocate_vm_page(vm_page_family, units);
+	
+	if(!vm_page)
 		return NULL;
-	}
 	
-	if(units * pg_family->struct_size > MAX_PAGE_ALLOCATE_MEMORY(1)){
+	/* The new page is like one free block, add it to 
+	    free block list*/
+	mm_add_free_block_meta_data_to_free_block_list(
+		vm_page_family, &vm_page->block_meta_data);
 		
-		printf("Error : Memory Requested Exceeds Page Size\n");
-		return NULL;
-	}
-	
-	/*Find the page which can satisfy the request*/
-	block_meta_data_t *free_block_meta_data = NULL;
-	
-	free_block_meta_data = mm_allocate_free_data_block(
-					pg_family, unit * pg_family->struct_size);
-					
-	if(free_block_meta_data){
-		memset((char *)(free_block_meta_data + 1), 0,
-			free_block_meta_data->block_size);
-		return (void *)(free_block_meta_data + 1);
-	}
-	
-	return NULL;
-	
+	return vm_page;
 }
-/*
-block_meta_data_t *
-mm_get_biggest_free_block_page_family(vm_page_family){
-	
-}
-*/
 
-/*Fn to mark block_meta_data as being Allocated for
-  'size' bytes of application data. Return TRUE if
-  block allocation succeeds						*/
-  
+
 static vm_bool_t
 mm_split_free_data_block_for_allocation(
 					vm_page_family_t *vm_page_family,
@@ -316,7 +294,7 @@ mm_split_free_data_block_for_allocation(
 				remaining_size < (sizeof(block_meta_data_t) + vm_page_family->struct_size)){
 		/*New Meta block is to be created*/
 		next_block_meta_data = NEXT_META_BLOCK_BY_SIZE(block_meta_data);
-		next_block_meta_data->free = MM_TRUE;
+		next_block_meta_data->is_free = MM_TRUE;
 		next_block_meta_data->block_size = 
 				remaining_size - sizeof(block_meta_data_t);
 		next_block_meta_data->offset = block_meta_data->offset + 
@@ -341,7 +319,7 @@ mm_split_free_data_block_for_allocation(
 	else{
 		/*New Meta block is to be created*/
 		next_block_meta_data = NEXT_META_BLOCK_BY_SIZE(block_meta_data);
-		next_block_meta_data->free = MM_TRUE;
+		next_block_meta_data->is_free = MM_TRUE;
 		next_block_meta_data->block_size = 
 				remaining_size - sizeof(block_meta_data_t);
 		next_block_meta_data->offset = block_meta_data->offset + 
@@ -357,9 +335,10 @@ mm_split_free_data_block_for_allocation(
 	}
 	
 	return MM_TRUE;
-	
 
 }
+
+
 
 
 
@@ -379,11 +358,11 @@ mm_allocate_free_data_block(
 			biggest_block_meta_data->block_size < req_size){
 		
 		/*Time to add a new ppage to page family to satisfy the request*/
-		vm_page = mm_family_new_page_add(vm_page_family);
+		vm_page = mm_family_new_page_add(vm_page_family, 1);
 		
 		/*Allocate the free block from this page now*/
 		status = mm_split_free_data_block_for_allocation(vm_page_family,
-				&vm_page->block_meta_data, req_size);
+							&vm_page->block_meta_data, req_size);
 				
 		if(status)
 			return &vm_page->block_meta_data;
@@ -405,4 +384,254 @@ mm_allocate_free_data_block(
 }
 
 
+/*Fn to mark block_meta_data as being Allocated for
+  'size' bytes of application data. Return TRUE if
+  block allocation succeeds						*/
+  
 
+/*The public function to be invoked by the application for Dynamic Memory Allocation*/
+void * 
+xcalloc(char *struct_name, int units){
+
+	/*Step 1*/
+	vm_page_family_t *pg_family = 
+			lookup_page_family_by_name(struct_name);
+	
+	if(!pg_family){
+		printf("Error : Structure %s is not registered with Memory Manager\n",
+																	struct_name);
+		return NULL;
+	}
+	
+	
+	/*Find the page which can satisfy the request*/
+	block_meta_data_t *free_block_meta_data = NULL;
+	
+	free_block_meta_data = mm_allocate_free_data_block(
+					pg_family, units * pg_family->struct_size);
+					
+	if(free_block_meta_data){
+		memset((char *)(free_block_meta_data + 1), 0,
+			free_block_meta_data->block_size);
+		return (void *)(free_block_meta_data + 1);
+	}
+	
+	return NULL;
+	
+}
+
+
+static int
+mm_get_hard_internal_memory_frag_size(
+			block_meta_data_t *first,
+			block_meta_data_t *second){
+
+	block_meta_data_t *next_block = NEXT_META_BLOCK_BY_SIZE(first);
+	return (int)((unsigned long)second - (unsigned long)(next_block));
+}
+
+
+
+
+static block_meta_data_t *
+mm_free_blocks(block_meta_data_t *to_be_free_block){
+	
+	block_meta_data_t *return_block = NULL;
+	
+	assert(to_be_free_block->is_free == MM_FALSE);
+	
+	vm_page_t *hosting_page = 
+			MM_GET_PAGE_FROM_META_BLOCK(to_be_free_block);
+	
+	vm_page_family_t *vm_page_family = hosting_page->page_family;
+	
+	return_block = to_be_free_block;
+	
+	to_be_free_block->is_free = MM_TRUE;
+	
+	block_meta_data_t *next_block = NEXT_META_BLOCK(to_be_free_block);
+	
+	/*Handling Hard IF memory*/
+	if(next_block){
+		/*Scenario 1: When data block to be freed is not the last 
+					  upper most meta block in the VM page*/
+		to_be_free_block->block_size +=
+				mm_get_hard_internal_memory_frag_size(to_be_free_block, next_block);
+	}
+	else{
+		/*Scenario 2: Page Boundary condition*/
+		/*Block begin frees is the upper most free data block
+		  in a VM data page, check for hard internal fragemented
+		  memory and merge*/
+		char *end_address_of_vm_page = (char *)((char *)hosting_page + SYSTEM_PAGE_SIZE);
+		char *end_address_of_free_data_block = 
+				(char *)(to_be_free_block + 1) + to_be_free_block->block_size;	
+		
+		int internal_mem_fragmentation = (int)((unsigned long)end_address_of_vm_page - 
+				(unsigned long)end_address_of_free_data_block);
+		
+		to_be_free_block->block_size += internal_mem_fragmentation;
+	}
+	
+	/*Now perform Merging*/
+	if(next_block && next_block->is_free == MM_TRUE){
+		/*Union two free blocks*/
+		mm_union_free_blocks(to_be_free_block, next_block);
+		return_block = to_be_free_block;
+	}
+	/*Chech the previous block if it was free*/
+	block_meta_data_t *prev_block = PREV_META_BLOCK(to_be_free_block);
+	
+	if(prev_block && prev_block->is_free){
+		mm_union_free_blocks(prev_block, to_be_free_block);
+		return_block = prev_block;
+	}
+	
+	if(mm_is_vm_page_empty(hosting_page)){
+		mm_vm_page_delete_and_free(hosting_page);
+		return NULL;
+	}
+	
+	mm_add_free_block_meta_data_to_free_block_list(
+			hosting_page->page_family, return_block);
+	
+	return return_block;
+}
+
+
+void xfree(void *app_data){
+	
+	block_meta_data_t *block_meta_data = 
+		(block_meta_data_t *)((char *)app_data - sizeof(block_meta_data_t));
+	
+	assert(block_meta_data->is_free == MM_FALSE);
+	mm_free_blocks(block_meta_data);
+} 
+
+
+
+void
+mm_print_block_usage(){
+	vm_page_t *vm_page_curr;
+	vm_page_family_t *vm_page_family_curr;
+	block_meta_data_t *block_meta_data_curr;
+	uint32_t total_block_count, free_block_count,
+			 occupied_block_count;
+	uint32_t application_memory_usage;
+	
+	
+	ITERATE_PAGE_FAMILIES_BEGIN(first_vm_page_for_families, vm_page_family_curr){
+	
+		total_block_count = 0;
+		free_block_count = 0;
+		application_memory_usage = 0;
+		
+		ITERATE_VM_PAGE_BEGIN(vm_page_family_curr, vm_page_curr){
+			
+			ITERATE_VM_PAGE_ALL_BLOCKS_BEGIN(vm_page_curr, block_meta_data_curr){
+				
+				total_block_count++;
+				
+				/*Sanity checks*/
+				if(block_meta_data_curr->is_free == MM_FALSE){
+					assert(IS_GLTHREAD_LIST_EMPTY(&block_meta_data_curr->	\
+								priority_thread_glue));
+				}
+				
+				if(block_meta_data_curr->is_free == MM_TRUE){
+					assert(!IS_GLTHREAD_LIST_EMPTY(&block_meta_data_curr->	\
+								priority_thread_glue));
+				}
+				
+				if(block_meta_data_curr->is_free == MM_TRUE){
+					free_block_count++;
+				}
+				
+				else{
+					application_memory_usage +=
+						block_meta_data_curr->block_size + \
+						sizeof(block_meta_data_t);
+					occupied_block_count++;
+				}
+			} ITERATE_VM_PAGE_ALL_BLOCKS_END(vm_page_curr, block_meta_data_curr);
+		} ITERATE_VM_PAGE_END(vm_page_family_curr, vm_page_curr);
+		
+		
+		printf("%-20s	TBC : %-4u	FBC : %-4u	OBC : %-4u AppMemUsage : %u\n",
+				vm_page_family_curr->struct_name, total_block_count,
+				free_block_count, occupied_block_count, application_memory_usage);
+	
+	} ITERATE_PAGE_FAMILIES_END(first_vm_page_for_families, vm_page_family_curr);
+}
+
+void 
+mm_print_vm_page_details(vm_page_t *vm_page){
+	
+	printf("\t\t next = %p, prev = %p\n", vm_page->next, vm_page->prev);
+	printf("\t\t page family = %s\n", vm_page->page_family->struct_name);
+	
+	uint32_t j = 0;
+	block_meta_data_t *curr;
+	ITERATE_VM_PAGE_ALL_BLOCKS_BEGIN(vm_page, curr){
+		
+		printf("\t\t\t%-14p Block %-3u %s block_size = %-6u "
+				"offset = %-6u prev = %-14p next = %p\n",
+				curr,
+				j++, curr->is_free ? "FREED" : "ALLOCATED",
+				curr->block_size, curr->offset,
+				curr->prev_block,
+				curr->next_block);
+	} ITERATE_VM_PAGE_ALL_BLOCKS_END(vm_page, curr);
+}
+				
+
+
+void mm_print_memory_usage(char *struct_name){
+	
+	uint32_t i = 0;
+	vm_page_t *vm_page = NULL;
+	vm_page_family_t *vm_page_family_curr;
+	uint32_t number_of_struct_families = 0;
+	uint32_t cumulative_vm_pages_claimed_from_kernel = 0;
+	
+	printf("\nPage Size = %zu Bytes\n", SYSTEM_PAGE_SIZE);
+	
+	ITERATE_PAGE_FAMILIES_BEGIN(first_vm_page_for_families, vm_page_family_curr){
+	
+		if(struct_name){
+			if(strncmp(struct_name, vm_page_family_curr->struct_name,
+						strlen(vm_page_family_curr->struct_name))){
+				continue;
+			}
+		}
+		
+		number_of_struct_families++;
+		
+		printf(ANSI_COLOR_GREEN "vm_page_family : %s, struct size = %u\n" \
+			   ANSI_COLOR_RESET,
+			   vm_page_family_curr->struct_name,
+			   vm_page_family_curr->struct_size);
+		
+		i = 0;
+		ITERATE_VM_PAGE_BEGIN(vm_page_family_curr, vm_page){
+			
+			cumulative_vm_pages_claimed_from_kernel++;
+			mm_print_vm_page_details(vm_page);
+			
+		} ITERATE_VM_PAGE_END(vm_page_family_curr, vm_page);
+		printf("\n");
+	
+	} ITERATE_PAGE_FAMILIES_END(first_vm_page_for_families, vm_page_family_curr);
+	
+	printf(ANSI_COLOR_MAGENTA "# Of VM Pages in use : %u (%lu Bytes)\n" \
+			ANSI_COLOR_RESET,
+			cumulative_vm_pages_claimed_from_kernel,
+			SYSTEM_PAGE_SIZE * cumulative_vm_pages_claimed_from_kernel);
+	
+	float memory_app_use_to_total_memory_ratio = 0.0;
+	
+	printf("Total Memory being used by Memory Manager = %lu Bytes\n",
+			cumulative_vm_pages_claimed_from_kernel * SYSTEM_PAGE_SIZE);
+	
+	
+}
